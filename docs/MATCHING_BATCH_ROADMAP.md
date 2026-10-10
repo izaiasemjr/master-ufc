@@ -79,6 +79,22 @@ Para uma divisão treino/teste diferente, use, por exemplo,
 
 ## Próximas melhorias, ainda não implementadas
 
+### Contrato a preservar na comparação `legacy` × `paper`
+
+```makefile
+legacy:
+  correspondência: L2 nearest neighbor
+  pontuação: sqrt(L1)
+
+paper:
+  correspondência: L1 nearest neighbor
+  pontuação: L1
+```
+
+Esses modos não devem ser tratados como numericamente equivalentes: `legacy`
+serve para reproduzir os resultados históricos, enquanto `paper` segue a
+definição Manhattan/L1 documentada.
+
 1. Criar um modo `legacy` isolado somente para reproduzir e comparar os
    resultados históricos. Ele não deve ser confundido com o modo `paper`, pois
    o histórico usa L2 na busca dinâmica e `sqrt(L1)` no escore.
