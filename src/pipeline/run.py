@@ -14,7 +14,7 @@ from pathlib import Path
 from config import ConfigError, compile_experiment, read_yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-STAGES = ("preprocessing", "reference_mask", "registration", "landmarks", "crop", "keypoints", "feature_extraction", "matching", "classification", "evaluation")
+STAGES = ("preprocessing", "reference_mask", "registration", "landmarks", "crop", "keypoints", "feature_extraction", "matching", "classification", "evaluation", "visualization")
 RUNNERS = {
     "preprocessing": "src/preprocessing/preprocess.py",
     "reference_mask": "src/registration/bosphorus_reference_mask.py",
@@ -26,6 +26,7 @@ RUNNERS = {
     "matching": "src/matching/run_matching.py",
     "classification": "src/classification/run_classification.py",
     "evaluation": "src/evaluation/run_evaluation.py",
+    "visualization": "src/evaluation/visualization/run_visualization.py",
 }
 
 
@@ -45,7 +46,7 @@ def stage_command(stage: str, root: Path, config_path: Path, args: argparse.Name
     # Recognition stages must receive a coherent descriptor population. A cloud
     # limit is useful for upstream smoke tests but would silently change that
     # population, so it is intentionally not forwarded to them.
-    if args.limit is not None and stage not in {"reference_mask", "landmarks", "matching", "classification", "evaluation"}:
+    if args.limit is not None and stage not in {"reference_mask", "landmarks", "matching", "classification", "evaluation", "visualization"}:
         command += ["--limit", str(args.limit)]
     if args.overwrite:
         command.append("--overwrite")

@@ -6,7 +6,7 @@ samples:
   groups: [neutral, occlusion]
 
 pipeline:
-  stages: [preprocessing, reference_mask, registration, landmarks, crop, keypoints, feature_extraction, matching, classification, evaluation]
+  stages: [preprocessing, reference_mask, registration, landmarks, crop, keypoints, feature_extraction, matching, classification, evaluation, visualization]
 
 execution:
   workers: 1
@@ -28,7 +28,7 @@ registration:
       transformation_epsilon: 0.001
       max_iterations: 100
     occlusion:
-      enabled: true
+      enabled: false
       threshold: 8.0
       penalty: 1
       restoration_threshold: 1.0
@@ -106,3 +106,25 @@ matching:
       correspondence: dynamic
     iss:
       correspondence: dynamic
+
+# Figures are written below evaluation/visualization/ in this experiment's
+# result tree. Values reproduce the historical fixed-k CMC choices.
+visualization:
+  formats: [png]
+  dpi: 300
+  cmc_k:
+    sparse_15: 30
+    sift: 20
+    iss: 50
+  variant_labels:
+    sparse_15: Radial Grid
+    sift: SIFT
+    iss: ISS
+  category_labels:
+    N: Neutral
+    O_EYE: Eye
+    O_GLASSES: Glasses
+    O_MOUTH: Mouth
+    O_HAIR: Hair
+    O_ALL: O All
+    ALL: All

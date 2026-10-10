@@ -153,6 +153,7 @@ def _paths(experiment: dict[str, Any], dataset: dict[str, Any]) -> dict[str, str
         "matching": f"{root}/matching",
         "classification": f"{root}/classification",
         "evaluation": f"{root}/evaluation",
+        "visualization": f"{root}/evaluation/visualization",
     }
 
 
@@ -226,7 +227,7 @@ def compile_experiment(experiment: dict[str, Any], dataset: dict[str, Any]) -> d
         "execution": {"workers": execution.get("workers", 1), "fail_fast": execution.get("fail_fast", False)},
     }
     configs = {"preprocessing": preprocess, "registration": registration, "crop": crop, "keypoints": keypoints, "feature_extraction": feature_extraction}
-    recognition_stages = {"matching", "classification", "evaluation"}
+    recognition_stages = {"matching", "classification", "evaluation", "visualization"}
     if recognition_stages.intersection(stages):
         matching_settings = _require(experiment, "matching", "experiment")
         matching_commands = _require(commands, "matching", "dataset")
@@ -249,5 +250,12 @@ def compile_experiment(experiment: dict[str, Any], dataset: dict[str, Any]) -> d
             "input": {"classification_root": paths["classification"]},
             "output": {"root": paths["evaluation"], "overwrite": False},
             "matching": matching_settings,
+        }
+        configs["visualization"] = {
+            "name": name,
+            "input": {"evaluation_root": paths["evaluation"]},
+            "output": {"root": paths["visualization"], "overwrite": False},
+            "matching": matching_settings,
+            "visualization": experiment.get("visualization", {}),
         }
     return {"experiment": experiment, "dataset": dataset, "paths": paths, "stages": stages, "configs": configs}

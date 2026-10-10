@@ -1,157 +1,153 @@
 # master-researches
 
-Configurações globais em YAML organizam experimentos de reconhecimento facial
-3D. Um experimento declara a base, grupos de amostras, parâmetros e as etapas
-da pipeline; o executor gera os arquivos específicos de cada etapa apenas no
-momento da execução. Os scripts existentes continuam independentes.
+Pipeline configurável de reconhecimento facial 3D. Ela pré-processa nuvens de
+pontos, constrói a máscara de referência, registra e recorta as faces, extrai
+keypoints e descritores FPFH, executa matching, classificação e avaliação.
 
-## Estrutura
+O repositório contém **código, configurações e documentação**. Bases biométricas,
+nuvens `.pcd` e resultados nunca são publicados nele.
 
-```text
-configs/
-  datasets/                 # como cada base está organizada
-  experiments/              # contextos de teste reutilizáveis
-src/pipeline/run.py         # executor global
-src/{preprocessing,registration,crop,keypoints,feature_extraction,matching,classification,evaluation}/
-data/results/<BASE>/experiments/<TESTE>/
-```
+## Requisitos e instalação
 
-Há três contextos Bosphorus prontos:
-
-- `bosphorus_neutrals`: somente nuvens neutras;
-- `bosphorus_neutrals_occlusions`: neutras e oclusões;
-- `bosphorus_neutrals_expressions`: neutras e expressões.
-
-Cada um grava em uma árvore própria de resultados. Por exemplo, o segundo usa
-`data/results/BOSPHORUS/experiments/bosphorus-neutrals-occlusions/`; portanto,
-resultados de cenários diferentes não se misturam.
-
-## Executar
-
-Sempre comece verificando o contexto, sem escrever arquivos:
-
-```powershell
-python src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --dry-run
-```
-
-Para executar toda a cadeia em Linux/WSL, depois de compilar os executáveis
-PCL e instalar os utilitários PCL:
+O ambiente suportado para executar toda a pipeline é **Ubuntu/Debian ou WSL**,
+pois as etapas nativas usam PCL. No WSL, abra a distribuição Linux e execute:
 
 ```bash
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions
+git clone <URL-DO-REPOSITORIO> master-researches
+cd master-researches
+bash scripts/install_dependencies.sh
 ```
 
-Para uma etapa somente, preserve o mesmo contexto global e selecione-a:
+O instalador usa `apt` para instalar Python 3, Matplotlib, CMake, compilador
+C++ e PCL (incluindo os utilitários de linha de comando), e então compila os
+seis executáveis nativos do projeto. Ele pede `sudo` somente para os pacotes do
+sistema. Para ambientes já preparados, há duas opções:
 
 ```bash
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage preprocessing
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage registration
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage crop
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage keypoints
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage feature_extraction
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage matching
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage classification
-python3 src/pipeline/run.py --experiment bosphorus_neutrals_occlusions --stage evaluation
+# Apenas conferir as ferramentas existentes e compilar.
+bash scripts/install_dependencies.sh --skip-system-packages
+
+# Instalar/verificar pacotes sem recompilar.
+bash scripts/install_dependencies.sh --skip-build
 ```
 
-`--stage` pode ser repetido. `--limit 3` processa três nuvens nas etapas que
-operam em nuvens, e `--overwrite` permite regenerar saídas existentes. Use
-`--print-config` para inspecionar a configuração final que será entregue aos
-executores de cada etapa. Uma etapa isolada pressupõe que as saídas das suas
-dependências já existam; por exemplo, `crop` requer registro e landmarks.
-`feature_extraction` requer tanto `crop` quanto o conjunto de keypoints
-referenciado pela variante.
-`matching` requer todos os descritores do protocolo; `classification` requer os
-scores de matching; e `evaluation` requer as previsões de classificação. As
-três etapas analíticas deliberadamente ignoram `--limit`: uma execução parcial
-não representa o protocolo científico configurado.
+Não é necessário instalar uma biblioteca Python adicional para o executor: o
+leitor YAML usado pela pipeline faz parte do próprio projeto. Em uma instalação
+manual, são necessários: Python 3, `python3-matplotlib`, CMake, um compilador
+C++ compatível e PCL com os programas `pcl_icp`, `pcl_voxel_grid`,
+`pcl_outlier_removal`, `pcl_transform_point_cloud`,
+`pcl_concatenate_points_pcd` e `pcl_mls_smoothing`.
 
-## Matching, classificação e avaliação (modo paper)
+## Dados locais e privacidade
 
-O experimento `bosphorus_neutrals_occlusions` declara no YAML a galeria
-`N_N_0` e as categorias `N`, `O_EYE`, `O_GLASSES`, `O_MOUTH` e `O_HAIR`.
-As quantidades são inferidas da base local, salvo quando `expected_count` é
-declarado para reproduzir um protocolo fechado. Ele publica:
+Baixe o Bosphorus somente a partir da fonte autorizada e conforme os seus
+termos de uso. Não copie o conteúdo da base para este repositório nem para um
+fork público. O `.gitignore` protege integralmente `data/bases/` e
+`data/results/`, preservando apenas seus `.gitkeep` vazios; além disso, ele
+ignora qualquer arquivo `*.pcd` em todo o projeto.
+
+Após descompactar a base localmente, organize-a assim (os nomes de exemplo são
+apenas estruturais; não são dados incluídos no repositório):
 
 ```text
-matching/<variante>/pair_scores.csv      # probe × galeria × k
-matching/<variante>/timing.csv           # I/O, índice e matching separados
-classification/<variante>/predictions.csv
-evaluation/<variante>/accuracy_by_k.csv  # RR no rank 1
-evaluation/<variante>/cmc.csv            # ranks 1..20
+data/
+  bases/
+    BOSPHORUS/
+      BOSPHORUS_PCD/
+        bs000/
+          <nuvem>.pcd
+        ...
+      LANDMARKS_PCD/
+        bs000/
+          <landmarks>.pcd
+        ...
+  results/                         # criado/preenchido pela pipeline; não versionado
 ```
 
-O modo `paper` usa distância L1 nos 33 bins FPFH em toda a cadeia: busca de
-vizinhos na correspondência dinâmica e média dos exatamente `k` menores
-valores para a decisão. A variante de grid fixo exige cardinalidades idênticas
-de descritores; ela não descarta índices extras silenciosamente. A seleção de
-`k` continua sendo apenas relatada para todos os valores configurados — não há
-ainda divisão validação/teste para escolher um `k`.
+Esses caminhos correspondem a `configs/datasets/bosphorus.yaml`. Caso a cópia
+local da base tenha outro nome ou organização, altere somente os campos
+`paths.raw_clouds` e `paths.landmarks` desse arquivo de configuração. Não
+guarde essa alteração em `data/`.
 
-Os números 105 e 575 do protocolo completo Bosphorus são asserções possíveis,
-não limites do software. Em outro experimento, altere ou omita `expected_count` e selecione a
-galeria/probes com os campos `subject`, `type`, `expression`, `sample`, listas
-ou seus equivalentes `*_regex`. Sem `expected_count`, a quantidade é inferida
-dos descritores encontrados, mas classificação e avaliação ainda exigem que a
-mesma população esteja presente em todos os valores de `k`.
+O exemplo Bosphorus usa os três grupos definidos na configuração:
 
-`time_match_ms` mede somente o núcleo em memória de cada par. Leitura de PCD,
-inicialização de processo, escrita de arquivo e construção compartilhada dos
-índices L1 não entram nesse número; `timing.csv` mantém leitura e indexação em
-colunas separadas para que o custo completo também possa ser auditado. Como um
-par é calculado uma vez e reutilizado para todos os `k`, não some
-`time_match_ms` entre linhas que diferem apenas em `k`.
+- `neutral`: arquivos cujo nome contém `N`;
+- `occlusion`: arquivos cujo nome contém `O`;
+- `expression`: arquivos cujo nome contém `E`.
 
-Se uma etapa falhar, a pipeline para antes das etapas dependentes e imprime um
-**Resumo de falhas** com etapa, nuvem e diagnóstico. Ele também é salvo em
-`pipeline/pipeline-run.json`. Para falhas de CP-ICP, há ainda um log completo
-por nuvem em `registration/errors/<sujeito>/<amostra>.log`, contendo o comando
-executado, código de saída, `stdout` e `stderr`.
+Para a descrição acadêmica da base e de suas convenções, consulte Savran et
+al., *Bosphorus Database for 3D Face Analysis* (2008),
+[DOI: 10.1007/978-3-540-89991-4_6](https://doi.org/10.1007/978-3-540-89991-4_6).
 
-As etapas ainda podem ser chamadas diretamente com os arquivos JSON históricos
-em `data/configs/`. Para novos testes, a interface recomendada é o executor
-global com YAML, pois ela garante que o mesmo recorte de amostras seja usado
-em todas as etapas.
+## Executar a pipeline
 
-## Criar um novo teste na mesma base
+Há três experimentos Bosphorus prontos em `configs/experiments/`:
 
-Copie `configs/experiments/_template.yaml`, altere `id` e escolha os grupos:
+- `bosphorus_neutrals` — apenas nuvens neutras;
+- `bosphorus_neutrals_occlusions` — neutras e oclusões;
+- `bosphorus_neutrals_expressions` — neutras e expressões.
 
-```yaml
-samples:
-  groups: [neutral, occlusion]
+Primeiro valide a configuração e os caminhos, sem criar arquivos:
+
+```bash
+python3 src/pipeline/run.py \
+  --experiment bosphorus_neutrals_occlusions \
+  --dry-run
 ```
 
-Os grupos disponíveis para Bosphorus estão em
-`configs/datasets/bosphorus.yaml`: `neutral`, `occlusion` e `expression`.
-Altere também qualquer parâmetro específico da hipótese, como raio de crop,
-detector, raios FPFH, parâmetros CP-ICP ou o processamento de oclusão. O `id` faz parte
-do caminho de saída e deve ser exclusivo.
+Quando o resultado do teste estiver correto, execute a cadeia completa:
 
-## Adicionar outra base
+```bash
+python3 src/pipeline/run.py \
+  --experiment bosphorus_neutrals_occlusions
+```
 
-Crie `configs/datasets/<base>.yaml` usando `bosphorus.yaml` como modelo:
+Os resultados desse exemplo são criados exclusivamente em:
 
-1. defina `paths.raw_clouds` e `paths.landmarks`;
-2. defina um `selection.glob` e um regex para cada grupo de amostras;
-3. registre a convenção de referência neutra em `reference`;
-4. informe os comandos/executáveis aplicáveis à base.
+```text
+data/results/BOSPHORUS/experiments/bosphorus-neutrals-occlusions/
+```
 
-Depois crie um experimento que use `dataset: <base>`. O runner preserva o
-caminho relativo de cada nuvem; assim, diferentes organizações por sujeito ou
-subdiretório são mantidas nos resultados. Se a nova base exigir uma referência
-ou uma estratégia de registro incompatível com CP-ICP/Bosphorus, ela poderá
-ter um runner próprio, mantendo o mesmo contrato de experimento.
+Para uma execução de fumaça, processe poucas nuvens nas etapas que trabalham
+com nuvens:
 
-## Reprodutibilidade
+```bash
+python3 src/pipeline/run.py \
+  --experiment bosphorus_neutrals_occlusions \
+  --limit 3
+```
 
-Em uma execução real, o executor salva em
-`.../pipeline/resolved-context.json` a configuração expandida e seu hash, e
-em `.../pipeline/pipeline-run.json` o resultado de cada etapa. Isso permite
-reconstruir exatamente os caminhos, filtros e parâmetros de um resultado.
+Também é possível executar uma etapa, desde que as etapas das quais ela depende
+já tenham sido concluídas:
 
-## Evolução planejada
+```bash
+python3 src/pipeline/run.py \
+  --experiment bosphorus_neutrals_occlusions \
+  --stage preprocessing
+```
 
-O desenho entregue e as melhorias ainda futuras — especialmente a comparação
-controlada com os resultados legados e a eventual seleção de `k` em uma divisão
-independente — estão em [docs/MATCHING_BATCH_ROADMAP.md](docs/MATCHING_BATCH_ROADMAP.md).
+As etapas disponíveis são `preprocessing`, `reference_mask`, `registration`,
+`landmarks`, `crop`, `keypoints`, `feature_extraction`, `matching`,
+`classification`, `evaluation` e `visualization`. Use `--overwrite` somente
+para regenerar saídas existentes e `--print-config` para inspecionar o contexto
+YAML resolvido.
+
+## Resultados e reprodutibilidade
+
+Cada execução registra o contexto expandido em `pipeline/resolved-context.json`
+e o resultado das etapas em `pipeline/pipeline-run.json`, dentro do diretório
+do experimento. As saídas incluem manifests por etapa, descritores, scores,
+predições, tabelas CSV de taxa de reconhecimento/CMC e figuras de avaliação.
+Nada sob `data/results/` é adicionado ao Git.
+
+## Criar outro experimento ou usar outra base
+
+Copie `configs/experiments/_template.yaml`, escolha um `id` único, informe
+`dataset` e selecione os grupos de amostras. Para outra base, crie
+`configs/datasets/<base>.yaml` a partir de `bosphorus.yaml`, descrevendo os
+caminhos locais, o padrão de nomes e a referência neutra. Assim, configurações
+reproduzíveis podem ser compartilhadas sem compartilhar faces, landmarks ou
+resultados derivados.
+
+Detalhes das etapas estão nos READMEs em `src/`; o roteiro de evolução de
+matching em lote está em [docs/MATCHING_BATCH_ROADMAP.md](docs/MATCHING_BATCH_ROADMAP.md).

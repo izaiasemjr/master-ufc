@@ -1,10 +1,14 @@
-# Dataset files and generated artifacts are local by default.  Keep only
-# configurations and documentation under version control unless a dataset is
-# explicitly approved for publication.
-data/bases/*
+# Dados de bases biométricas e artefatos de execução são estritamente locais.
+# Os únicos arquivos versionados nestas árvores são os marcadores vazios.
+# Configurações reproduzíveis pertencem a configs/, nunca a data/.
+data/bases/**
 !data/bases/.gitkeep
-data/results/*
+data/results/**
 !data/results/.gitkeep
+
+# Uma nuvem PCD nunca deve entrar no repositório, mesmo se for colocada fora
+# das pastas de dados por engano.
+*.[pP][cC][dD]
 
 # Python runtime artifacts
 __pycache__/
