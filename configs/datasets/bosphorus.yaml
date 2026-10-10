@@ -1,0 +1,42 @@
+# Dataset facts shared by every Bosphorus experiment.  Only this file needs
+# changing when the local dataset location or filename convention changes.
+id: BOSPHORUS
+
+paths:
+  raw_clouds: data/bases/BOSPHORUS/BOSPHORUS_PCD
+  landmarks: data/bases/BOSPHORUS/LANDMARKS_PCD
+
+selection:
+  glob: "**/*.pcd"
+  groups:
+    neutral: "^bs\\d+_N_.*\\.pcd$"
+    occlusion: "^bs\\d+_O_.*\\.pcd$"
+    expression: "^bs\\d+_E_.*\\.pcd$"
+
+
+# Parameters specific to building the Bosphorus global MLS reference mask.
+reference:
+  base_relative_path: bs000/bs000_N_N_0.pcd
+  gallery_filename_regex: "^bs\\d+_N_N_0\\.pcd$"
+  pcl_icp_options: [-d, 80, -r, 2, -i, 50]
+  mls_radius: 2.0
+
+commands:
+  preprocessing:
+    outlier_removal: pcl_outlier_removal
+    voxel_grid: pcl_voxel_grid
+  registration:
+    cp_icp: src/registration/cp_icp/build/icp-cp
+    transform_landmarks: pcl_transform_point_cloud
+    icp: pcl_icp
+    concatenate_points: pcl_concatenate_points_pcd
+    mls_smoothing: pcl_mls_smoothing
+  crop:
+    crop: src/crop/build/Crop
+  keypoints:
+    radial_grid: src/keypoints/radial_grid/build/keypoints_grid
+    detectors: src/keypoints/detectors/build/keypoints
+  feature_extraction:
+    feature_extraction: src/feature_extraction/build/feature_extraction
+  matching:
+    matching_batch: src/matching/build/matching_batch

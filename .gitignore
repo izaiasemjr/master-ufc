@@ -1,0 +1,20 @@
+# Dataset files and generated artifacts are local by default.  Keep only
+# configurations and documentation under version control unless a dataset is
+# explicitly approved for publication.
+data/bases/*
+!data/bases/.gitkeep
+data/results/*
+!data/results/.gitkeep
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+
+# PCL's temporary files can be left after an interrupted run.
+*.preprocess-tmp.pcd
+*.outlier-tmp.pcd
+*.tmp.pcd
+
+# CMake build products and timing files written by the legacy C++ executables.
+src/**/build/
+*.times.dat
