@@ -48,6 +48,7 @@ if [[ "$SKIP_SYSTEM_PACKAGES" == false ]]; then
     ca-certificates \
     cmake \
     libpcl-dev \
+    mpi-default-dev \
     pcl-tools \
     python3 \
     python3-matplotlib

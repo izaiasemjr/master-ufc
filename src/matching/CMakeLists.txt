@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
-project(matching_batch LANGUAGES CXX)
+# Keep the project compatible with PCL/VTK builds that require MPI::MPI_C.
+project(matching_batch LANGUAGES C CXX)
 
 find_package(PCL 1.8 REQUIRED COMPONENTS common io kdtree)
 
