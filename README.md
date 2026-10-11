@@ -1,4 +1,4 @@
-# master-researches
+# master-results-UFC
 
 Pipeline configurável de reconhecimento facial 3D. Ela pré-processa nuvens de
 pontos, constrói a máscara de referência, registra e recorta as faces, extrai
