@@ -1,4 +1,6 @@
-cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
+# CMake 4 (Ubuntu 26.04+) no longer supports compatibility below 3.5.
+# The range remains compatible with the CMake 3.22 packaged by Ubuntu 22.04.
+cmake_minimum_required(VERSION 3.5...3.25 FATAL_ERROR)
 
 project(CP-ICP_ORG)
 

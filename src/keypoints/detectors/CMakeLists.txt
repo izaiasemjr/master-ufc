@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
+# Compatible with Ubuntu 22.04 (CMake 3.22) and Ubuntu 26.04+ (CMake 4).
+cmake_minimum_required(VERSION 3.5...3.25 FATAL_ERROR)
 
 project(keypoints)
 find_package(PCL 1.8 REQUIRED)
