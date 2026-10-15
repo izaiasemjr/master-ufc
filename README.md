@@ -52,15 +52,14 @@ apenas estruturais; não são dados incluídos no repositório):
 ```text
 data/
   bases/
-    BOSPHORUS/
-      BOSPHORUS_PCD/
-        bs000/
-          <nuvem>.pcd
-        ...
-      LANDMARKS_PCD/
-        bs000/
-          <landmarks>.pcd
-        ...
+    BOSPHORUS_PCD/
+      bs000/
+        <nuvem>.pcd
+      ...
+    LANDMARKS_PCD/
+      bs000/
+        <landmarks>.pcd
+      ...
   results/                         # criado/preenchido pela pipeline; não versionado
 ```
 
@@ -71,9 +70,14 @@ guarde essa alteração em `data/`.
 
 O exemplo Bosphorus usa os três grupos definidos na configuração:
 
-- `neutral`: arquivos cujo nome contém `N`;
-- `occlusion`: arquivos cujo nome contém `O`;
-- `expression`: arquivos cujo nome contém `E`.
+- `neutral`: `bs<subject>_N_N_<sample>.pcd`;
+- `occlusion`: `bs<subject>_O_<EYE|GLASSES|MOUTH|HAIR>_<sample>.pcd`;
+- `expression`: `bs<subject>_E_<ANGER|DISGUST|FEAR|HAPPY|SADNESS|SURPRISE>_<sample>.pcd`.
+
+Todos os experimentos usam `N_N_0` como galeria e apenas `N_N_1`, `N_N_2`,
+etc. como probes neutras. As contagens são inferidas dos arquivos disponíveis;
+não se exige que cada sujeito tenha todas as oclusões ou expressões. Todos
+incluem matching, classificação, avaliação e gráficos.
 
 Para a descrição acadêmica da base e de suas convenções, consulte Savran et
 al., *Bosphorus Database for 3D Face Analysis* (2008),
@@ -81,11 +85,22 @@ al., *Bosphorus Database for 3D Face Analysis* (2008),
 
 ## Executar a pipeline
 
-Há três experimentos Bosphorus prontos em `configs/experiments/`:
+Há quatro experimentos Bosphorus prontos em `configs/experiments/`:
 
 - `bosphorus_neutrals` — apenas nuvens neutras;
 - `bosphorus_neutrals_occlusions` — neutras e oclusões;
 - `bosphorus_neutrals_expressions` — neutras e expressões.
+- `bosphorus_neutrals_expressions_occlusions` — neutras, expressões e oclusões,
+  com matching, classificação, avaliação e gráficos. A galeria usa as faces
+  `N_N_0`; as demais faces são usadas como probes, com expressões e
+  oclusões separadas por tipo.
+
+Para executar o experimento com os três grupos:
+
+```bash
+python3 src/pipeline/run.py \
+  --experiment bosphorus_neutrals_expressions_occlusions
+```
 
 Primeiro valide a configuração e os caminhos, sem criar arquivos:
 

@@ -6,7 +6,7 @@ samples:
   groups: [neutral, expression]
 
 pipeline:
-  stages: [preprocessing, reference_mask, registration, landmarks, crop, keypoints, feature_extraction]
+  stages: [preprocessing, reference_mask, registration, landmarks, crop, keypoints, feature_extraction, matching, classification, evaluation, visualization]
 
 execution:
   workers: 1
@@ -68,3 +68,71 @@ feature_extraction:
       keypoint_method: iss_10_5_0.975_0.0975_5_5
       normal_radius: 10.0
       feature_radius: 25.0
+
+# This local Bosphorus subset defines its gallery and probe population from the
+# descriptors found. Add expected_count only when a fixed protocol is intended;
+# selectors can also use subject_regex, type_regex, expression_regex, and
+# sample_regex.
+# L1 is used consistently in correspondence search and score aggregation.
+matching:
+  mode: paper
+  k_values: [2, 5, 10, 20, 30, 40, 50, 1000000]
+  rank_max: 20
+  gallery:
+    type: N
+    expression: N
+    sample: 0
+  probes:
+    categories:
+      N:
+        type: N
+        expression: N
+        sample_regex: "[1-9][0-9]*"
+      E_ANGER:
+        type: E
+        expression: ANGER
+      E_DISGUST:
+        type: E
+        expression: DISGUST
+      E_FEAR:
+        type: E
+        expression: FEAR
+      E_HAPPY:
+        type: E
+        expression: HAPPY
+      E_SADNESS:
+        type: E
+        expression: SADNESS
+      E_SURPRISE:
+        type: E
+        expression: SURPRISE
+  variants:
+    sparse_15:
+      correspondence: fixed
+    sift:
+      correspondence: dynamic
+    iss:
+      correspondence: dynamic
+
+# Figures are written below evaluation/visualization/ in this experiment's
+# result tree. Values reproduce the historical fixed-k CMC choices.
+visualization:
+  formats: [png]
+  dpi: 300
+  cmc_k:
+    sparse_15: 30
+    sift: 20
+    iss: 50
+  variant_labels:
+    sparse_15: Radial Grid
+    sift: SIFT
+    iss: ISS
+  category_labels:
+    N: Neutral
+    E_ANGER: Anger
+    E_DISGUST: Disgust
+    E_FEAR: Fear
+    E_HAPPY: Happy
+    E_SADNESS: Sadness
+    E_SURPRISE: Surprise
+    ALL: All

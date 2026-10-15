@@ -87,6 +87,7 @@ matching:
       N:
         type: N
         expression: N
+        sample_regex: "[1-9][0-9]*"
       O_EYE:
         type: O
         expression: EYE

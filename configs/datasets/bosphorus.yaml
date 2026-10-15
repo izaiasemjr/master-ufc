@@ -3,22 +3,22 @@
 id: BOSPHORUS
 
 paths:
-  raw_clouds: data/bases/BOSPHORUS/BOSPHORUS_PCD
-  landmarks: data/bases/BOSPHORUS/LANDMARKS_PCD
+  raw_clouds: data/bases/BOSPHORUS_PCD
+  landmarks: data/bases/LANDMARKS_PCD
 
 selection:
   glob: "**/*.pcd"
   groups:
-    neutral: "^bs\\d+_N_.*\\.pcd$"
-    occlusion: "^bs\\d+_O_.*\\.pcd$"
-    expression: "^bs\\d+_E_.*\\.pcd$"
+    neutral: "^bs\\d+_N_N_\\d+\\.pcd$"
+    occlusion: "^bs\\d+_O_(EYE|GLASSES|MOUTH|HAIR)_\\d+\\.pcd$"
+    expression: "^bs\\d+_E_(ANGER|DISGUST|FEAR|HAPPY|SADNESS|SURPRISE)_\\d+\\.pcd$"
 
 
 # Parameters specific to building the Bosphorus global MLS reference mask.
 reference:
   base_relative_path: bs000/bs000_N_N_0.pcd
   gallery_filename_regex: "^bs\\d+_N_N_0\\.pcd$"
-  pcl_icp_options: [-d, 80, -r, 2, -i, 50]
+  pcl_icp_options: [-d, 200, -r, 50, -i, 50]
   mls_radius: 2.0
 
 commands:
