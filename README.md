@@ -68,16 +68,15 @@ local da base tenha outro nome ou organização, altere somente os campos
 `paths.raw_clouds` e `paths.landmarks` desse arquivo de configuração. Não
 guarde essa alteração em `data/`.
 
-O exemplo Bosphorus usa os três grupos definidos na configuração:
+O experimento ativo seleciona apenas dois grupos:
 
 - `neutral`: `bs<subject>_N_N_<sample>.pcd`;
-- `occlusion`: `bs<subject>_O_<EYE|GLASSES|MOUTH|HAIR>_<sample>.pcd`;
-- `expression`: `bs<subject>_E_<ANGER|DISGUST|FEAR|HAPPY|SADNESS|SURPRISE>_<sample>.pcd`.
+- `occlusion`: `bs<subject>_O_<EYE|GLASSES|MOUTH|HAIR>_<sample>.pcd`.
 
-Todos os experimentos usam `N_N_0` como galeria e apenas `N_N_1`, `N_N_2`,
-etc. como probes neutras. As contagens são inferidas dos arquivos disponíveis;
-não se exige que cada sujeito tenha todas as oclusões ou expressões. Todos
-incluem matching, classificação, avaliação e gráficos.
+A galeria usa `N_N_0` de cada sujeito; as demais neutras (`N_N_1`,
+`N_N_2`, etc.) e as oclusões são probes. As contagens são inferidas dos
+arquivos disponíveis. Expressões e outras poses da base não entram neste
+experimento. Os arquivos originais da base e os landmarks são preservados.
 
 Para a descrição acadêmica da base e de suas convenções, consulte Savran et
 al., *Bosphorus Database for 3D Face Analysis* (2008),
@@ -85,22 +84,10 @@ al., *Bosphorus Database for 3D Face Analysis* (2008),
 
 ## Executar a pipeline
 
-Há quatro experimentos Bosphorus prontos em `configs/experiments/`:
-
-- `bosphorus_neutrals` — apenas nuvens neutras;
-- `bosphorus_neutrals_occlusions` — neutras e oclusões;
-- `bosphorus_neutrals_expressions` — neutras e expressões.
-- `bosphorus_neutrals_expressions_occlusions` — neutras, expressões e oclusões,
-  com matching, classificação, avaliação e gráficos. A galeria usa as faces
-  `N_N_0`; as demais faces são usadas como probes, com expressões e
-  oclusões separadas por tipo.
-
-Para executar o experimento com os três grupos:
-
-```bash
-python3 src/pipeline/run.py \
-  --experiment bosphorus_neutrals_expressions_occlusions
-```
+O único experimento configurado é
+[`bosphorus_neutrals_occlusions.yaml`](configs/experiments/bosphorus_neutrals_occlusions.yaml).
+Ele executa toda a cadeia para neutros + oclusões, com as variantes Radial
+Grid (`sparse_15`), SIFT e ISS.
 
 Primeiro valide a configuração e os caminhos, sem criar arquivos:
 
@@ -121,15 +108,6 @@ Os resultados desse exemplo são criados exclusivamente em:
 
 ```text
 data/results/BOSPHORUS/experiments/bosphorus-neutrals-occlusions/
-```
-
-Para uma execução de fumaça, processe poucas nuvens nas etapas que trabalham
-com nuvens:
-
-```bash
-python3 src/pipeline/run.py \
-  --experiment bosphorus_neutrals_occlusions \
-  --limit 3
 ```
 
 Também é possível executar uma etapa, desde que as etapas das quais ela depende
@@ -155,14 +133,23 @@ do experimento. As saídas incluem manifests por etapa, descritores, scores,
 predições, tabelas CSV de taxa de reconhecimento/CMC e figuras de avaliação.
 Nada sob `data/results/` é adicionado ao Git.
 
-## Criar outro experimento ou usar outra base
+## Avaliar este experimento
 
-Copie `configs/experiments/_template.yaml`, escolha um `id` único, informe
-`dataset` e selecione os grupos de amostras. Para outra base, crie
-`configs/datasets/<base>.yaml` a partir de `bosphorus.yaml`, descrevendo os
-caminhos locais, o padrão de nomes e a referência neutra. Assim, configurações
-reproduzíveis podem ser compartilhadas sem compartilhar faces, landmarks ou
-resultados derivados.
+Após a execução completa, consulte dentro do diretório do experimento:
 
-Detalhes das etapas estão nos READMEs em `src/`; o roteiro de evolução de
-matching em lote está em [docs/MATCHING_BATCH_ROADMAP.md](docs/MATCHING_BATCH_ROADMAP.md).
+- `pipeline/pipeline-run.json`: etapas executadas e falhas;
+- `evaluation/<variante>/accuracy_by_k.csv`: acurácia por k e categoria;
+- `evaluation/<variante>/cmc.csv`: curvas CMC em formato tabular;
+- `evaluation/visualization/`: gráficos gerados.
+
+As categorias separam neutras, olho, óculos, boca e cabelo, além dos
+agrupamentos de oclusões e de todas as probes. Os valores de k e os seletores
+estão no YAML do experimento.
+
+A limpeza removeu os resultados anteriores. A próxima execução completa
+recriará a máscara de referência e todas as saídas a partir da base local.
+Evite `--limit` na execução usada para avaliação: ele reduz a população
+processada nas etapas iniciais.
+
+A ampliação da população e a criação de novos experimentos ficam para uma
+próxima etapa, depois da avaliação deste protocolo.
