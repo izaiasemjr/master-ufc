@@ -55,6 +55,7 @@ struct Arguments {
   std::string input;
   std::string output;
   std::string timing_output;
+  std::string pair_distances_output;
   std::string correspondence;
   std::vector<std::size_t> k_values;
 };
@@ -84,6 +85,7 @@ Arguments parse_arguments(int argc, char** argv) {
     if (option == "--input") args.input = require_value(index, argc, argv, "--input");
     else if (option == "--output") args.output = require_value(index, argc, argv, "--output");
     else if (option == "--timing-output") args.timing_output = require_value(index, argc, argv, "--timing-output");
+    else if (option == "--pair-distances-output") args.pair_distances_output = require_value(index, argc, argv, "--pair-distances-output");
     else if (option == "--correspondence") args.correspondence = require_value(index, argc, argv, "--correspondence");
     else if (option == "--ks") {
       for (const auto& raw : split(require_value(index, argc, argv, "--ks"), ',')) {
@@ -97,7 +99,8 @@ Arguments parse_arguments(int argc, char** argv) {
       }
     } else if (option == "--help") {
       std::cout << "Usage: matching_batch --input manifest.tsv --output scores.csv "
-                << "--timing-output timing.csv --correspondence fixed|dynamic --ks 2,5,10\n";
+                << "--timing-output timing.csv [--pair-distances-output distances.csv] "
+                << "--correspondence fixed|dynamic --ks 2,5,10\n";
       std::exit(0);
     } else {
       throw std::runtime_error("Unknown option: " + option);
@@ -249,6 +252,18 @@ void match_all(const Arguments& args) {
          << "distance_mean_l1,correspondence_count,selected_count,time_match_ms\n";
   output << std::fixed << std::setprecision(9);
 
+  std::ofstream pair_distances;
+  std::string distances_temporary;
+  if (!args.pair_distances_output.empty()) {
+    distances_temporary = args.pair_distances_output + ".tmp";
+    pair_distances.open(distances_temporary);
+    if (!pair_distances) throw std::runtime_error("Cannot write pair-distance output: " + distances_temporary);
+    pair_distances << "probe_subject,probe_type,probe_expression,probe_sample,"
+                   << "gallery_subject,gallery_type,gallery_expression,gallery_sample,"
+                   << "pair_index,distance_l1\n";
+    pair_distances << std::fixed << std::setprecision(9);
+  }
+
   double all_pairs_ms = 0.0;
   std::size_t pair_count = 0;
   for (const Item* probe : probes) {
@@ -259,6 +274,14 @@ void match_all(const Arguments& args) {
       auto scores = args.correspondence == "fixed" ? fixed_scores(*probe, *gallery)
                                                      : dynamic_scores(*probe, *gallery);
       std::sort(scores.begin(), scores.end());
+      if (pair_distances) {
+        for (std::size_t index = 0; index < scores.size(); ++index) {
+          pair_distances << probe->subject << ',' << probe->type << ',' << probe->expression << ','
+                         << probe->sample << ',' << gallery->subject << ',' << gallery->type << ','
+                         << gallery->expression << ',' << gallery->sample << ',' << index + 1 << ','
+                         << scores[index] << '\n';
+        }
+      }
       std::vector<double> prefix(scores.size() + 1, 0.0);
       for (std::size_t index = 0; index < scores.size(); ++index) prefix[index + 1] = prefix[index] + scores[index];
       const double pair_ms = milliseconds_since(pair_start);
@@ -278,6 +301,13 @@ void match_all(const Arguments& args) {
   if (!output) throw std::runtime_error("Failed while writing matching output: " + temporary);
   if (std::rename(temporary.c_str(), args.output.c_str()) != 0) {
     throw std::runtime_error("Cannot finalize matching output: " + args.output);
+  }
+  if (pair_distances) {
+    pair_distances.close();
+    if (!pair_distances) throw std::runtime_error("Failed while writing pair-distance output: " + distances_temporary);
+    if (std::rename(distances_temporary.c_str(), args.pair_distances_output.c_str()) != 0) {
+      throw std::runtime_error("Cannot finalize pair-distance output: " + args.pair_distances_output);
+    }
   }
   write_timing(args.timing_output, loading_ms, index_ms, all_pairs_ms, pair_count);
 }

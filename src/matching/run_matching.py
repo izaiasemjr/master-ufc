@@ -231,13 +231,18 @@ def main() -> int:
             manifest = variant_root / "descriptor-manifest.tsv"
             scores = variant_root / "pair_scores.csv"
             timing = variant_root / "timing.csv"
-            if scores.is_file() and timing.is_file() and not args.overwrite:
+            export_distances = bool(variant_settings.get("export_pair_distances", False))
+            pair_distances = variant_root / "pair_distances.csv"
+            outputs_exist = scores.is_file() and timing.is_file() and (not export_distances or pair_distances.is_file())
+            if outputs_exist and not args.overwrite:
                 validate_scores(scores, probes, gallery, k_values)
                 records.append({"source": variant, "status": "skipped", "message": "validated existing score and timing files", "output": str(scores)})
                 print(f"[matching] [skipped] {variant}")
                 continue
             write_input_manifest(manifest, gallery, probes)
             command = [str(executable), "--input", str(manifest), "--output", str(scores), "--timing-output", str(timing), "--correspondence", str(variant_settings["correspondence"]), "--ks", ",".join(map(str, k_values))]
+            if export_distances:
+                command.extend(["--pair-distances-output", str(pair_distances)])
             completed = subprocess.run(command, text=True, capture_output=True)
             if completed.returncode == 0:
                 try:

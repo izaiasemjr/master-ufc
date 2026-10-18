@@ -103,6 +103,8 @@ matching:
   variants:
     sparse_15:
       correspondence: fixed
+      # Retain the full sorted L1 distribution for the radial-grid study.
+      export_pair_distances: true
     sift:
       correspondence: dynamic
     iss:
