@@ -47,3 +47,27 @@ python scripts/analyses/plot_radial_probe_distributions.py \
 
 Use `--all` to produce the figure for every probe. The default `k=30` matches
 the experiment configuration.
+
+## Radial-grid distributions for misclassified probes
+
+`plot_radial_misclassified_probe_distributions.py` reuses the same three panels
+but writes images only when the best gallery belongs to a different subject
+(incorrect rank-1 identification). Scores are recomputed from `pair_distances.csv`
+using the mean of the `min(k, number of local distances)` smallest L1 distances.
+Equal scores are ordered by gallery ID, following the classification stage's
+tie-breaking rule. This analyzes the chosen `k`, independently of any previously
+saved predictions; `k` does not have to appear in `matching.k_values`.
+
+```bash
+python scripts/analyses/plot_radial_misclassified_probe_distributions.py \
+  --input data/results/BOSPHORUS/experiments/bosphorus-neutrals-occlusions/matching/sparse_15/pair_distances.csv \
+  --output-dir data/results/BOSPHORUS/experiments/bosphorus-neutrals-occlusions/analyses/radial-probe-distributions-misclassified-k107 \
+  --all --k 107
+```
+
+All probes are analyzed by default; `--all` is optional. Use `--probe <id>` to
+check a single probe. Correct probes produce no image. The script reports the
+predicted subject and genuine rank for each error, and the total number of
+errors. A missing genuine gallery is reported as an invalid protocol.
+Use a separate output directory for each `k` to keep results from different
+runs separate; existing images are not removed.

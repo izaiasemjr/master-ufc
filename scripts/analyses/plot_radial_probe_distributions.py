@@ -55,15 +55,22 @@ def local_quantiles(galleries: dict[str, list[float]], ranks: np.ndarray) -> tup
     return tuple(np.percentile(np.asarray(curves), q, axis=0) for q in (10, 25, 50, 75, 90))
 
 
+def rank_galleries(galleries: dict[str, list[float]], k: int) -> list[tuple[float, str]]:
+    """Rank by mean of the k smallest distances, breaking ties by gallery ID."""
+    if k < 1:
+        raise ValueError("k must be positive")
+    return sorted(
+        (sum(sorted(values)[:min(k, len(values))]) / min(k, len(values)), gallery)
+        for gallery, values in galleries.items()
+    )
+
+
 def plot_probe(probe: str, galleries: dict[str, list[float]], k: int, output: Path) -> None:
     ranks = np.linspace(0.0, 1.0, 106)
     q10, q25, q50, q75, q90 = local_quantiles(galleries, ranks)
     genuine = {gallery: values for gallery, values in galleries.items() if subject(gallery) == subject(probe)}
     impostor = {gallery: values for gallery, values in galleries.items() if gallery not in genuine}
-    final_scores = sorted(
-        ((sum(sorted(values)[:min(k, len(values))]) / min(k, len(values)), gallery) for gallery, values in galleries.items()),
-        key=lambda item: item[0],
-    )
+    final_scores = rank_galleries(galleries, k)
 
     fig, (ax_local, ax_hist, ax_final) = plt.subplots(1, 3, figsize=(16, 4.8), constrained_layout=True)
     ax_local.fill_between(ranks * 100, q10, q90, color="#5b9bd5", alpha=0.18, label="10–90% das galleries")
