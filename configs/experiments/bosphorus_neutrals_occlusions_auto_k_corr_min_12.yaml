@@ -1,0 +1,139 @@
+# Auto-k ablation: identical baseline descriptors, sweep DP instead of fixed k.
+id: bosphorus-neutrals-occlusions-auto-k-corr-min-12
+dataset: bosphorus
+
+samples:
+  groups: [neutral, occlusion]
+
+pipeline:
+  stages: [matching, classification, evaluation, visualization]
+
+execution:
+  workers: 1
+  fail_fast: false
+
+preprocessing:
+  outlier_removal:
+    radius: 5.0
+    min_points: 10
+  voxel_grid:
+    leaf_size: [2.0, 2.0, 2.0]
+
+registration:
+  target_suffix: N_N_0
+  processing:
+    fields: [x, y, z]
+    partitions: 2
+    icp:
+      transformation_epsilon: 0.001
+      max_iterations: 100
+    occlusion:
+      enabled: false
+      threshold: 8.0
+      penalty: 1
+      restoration_threshold: 1.0
+    debug: false
+
+crop:
+  landmark_index: 13
+  crop_radius: 80.0
+  offset: [0.0, 0.0, 0.0]
+
+keypoints:
+  radial_grids:
+    - [normal, 15, 11, 11, 6]
+    - [normal, 30, 11, 11, 6]
+    - [normal, 60, 11, 11, 6]
+    - [sparse, 15, 11, 11, 6]
+    - [sparse, 30, 11, 11, 6]
+    - [sparse, 10, 16, 11, 6]
+  detectors:
+    - [sift_normal, 10, 4, 7, 8, 0.0001]
+    - [iss, 10, 5, 0.975, 0.0975, 5, 5]
+
+feature_extraction:
+  variants:
+    sparse_15:
+      keypoint_family: grids
+      keypoint_method: sparse_15_11_11_6
+      normal_radius: 10.0
+      feature_radius: 25.0
+    sift:
+      keypoint_family: detectors
+      keypoint_method: sift_normal_10_4_7_8_0.0001
+      normal_radius: 10.0
+      feature_radius: 25.0
+    iss:
+      keypoint_family: detectors
+      keypoint_method: iss_10_5_0.975_0.0975_5_5
+      normal_radius: 10.0
+      feature_radius: 25.0
+
+# This local Bosphorus subset defines its gallery and probe population from the
+# descriptors found. Add expected_count only when a fixed protocol is intended;
+# selectors can also use subject_regex, type_regex, expression_regex, and
+# sample_regex.
+# L1 is used consistently in correspondence search and score aggregation.
+matching:
+  mode: paper
+  selection: auto_k
+  reuse_descriptors_from: bosphorus-neutrals-occlusions
+  # Largest sorted prefix with population stddev strictly less than DP.
+  # Always keep at least corr_min, even if its stddev does not meet DP.
+  # DP is in the same units as the L1 FPFH distances.
+  corr_min: 12
+  dp_values: [0.5, 1, 2, 3, 5, 7.5, 10, 15, 20, 30, 40, 60, 80, 100]
+  rank_max: 20
+  gallery:
+    type: N
+    expression: N
+    sample: 0
+  probes:
+    categories:
+      N:
+        type: N
+        expression: N
+        sample_regex: "[1-9][0-9]*"
+      O_EYE:
+        type: O
+        expression: EYE
+      O_GLASSES:
+        type: O
+        expression: GLASSES
+      O_MOUTH:
+        type: O
+        expression: MOUTH
+      O_HAIR:
+        type: O
+        expression: HAIR
+  variants:
+    sparse_15:
+      correspondence: fixed
+      # Optional export of all sorted L1 distances for auditing.
+      export_pair_distances: false
+    sift:
+      correspondence: dynamic
+    iss:
+      correspondence: dynamic
+
+# CMC shown at the declared DP; RR curves include all DP values.
+# Recognition curves include every DP.
+visualization:
+  formats: [png]
+  dpi: 300
+  cmc_dp:
+    sparse_15: 30
+    sift: 20
+    iss: 15
+  variant_labels:
+    sparse_15: Radial Grid
+    sift: SIFT
+    iss: ISS
+  category_labels:
+    N: Neutral
+    O_EYE: Eye
+    O_GLASSES: Glasses
+    O_MOUTH: Mouth
+    O_HAIR: Hair
+    O_ALL: O All
+    ALL: All

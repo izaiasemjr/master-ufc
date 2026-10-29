@@ -37,7 +37,8 @@ def main() -> int:
         if subject(predicted_gallery) == subject(probe):
             continue
         true_rank = next(rank for rank, (_, gallery) in enumerate(ranking, 1) if subject(gallery) == subject(probe))
-        plot_probe(probe, galleries, args.k, args.output_dir / f"{probe}.png")
+        plot_probe(probe, galleries, args.k, args.output_dir / f"{probe}.png",
+                   show_extreme_galleries=True)
         written += 1
         print(f"[misclassified] {probe}: predicted={subject(predicted_gallery)}, true_rank={true_rank}")
     print(f"Analyzed {len(selected)} probe(s) at k={args.k}; misclassified: {written}.")

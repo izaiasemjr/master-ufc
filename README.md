@@ -84,10 +84,17 @@ al., *Bosphorus Database for 3D Face Analysis* (2008),
 
 ## Executar a pipeline
 
-O único experimento configurado é
+O experimento base é
 [`bosphorus_neutrals_occlusions.yaml`](configs/experiments/bosphorus_neutrals_occlusions.yaml).
 Ele executa toda a cadeia para neutros + oclusões, com as variantes Radial
 Grid (`sparse_15`), SIFT e ISS.
+
+Há duas ablações do registro: `bosphorus_neutrals_occlusions_gallery_only_registration`
+preserva a galeria registrada original e deixa as probes sem registro;
+`bosphorus_neutrals_occlusions_no_registration` deixa galeria e probes sem
+registro. Os parâmetros de processamento e reconhecimento são os mesmos do
+experimento base. Consulte os comandos, controles e a pesquisa em
+[Influência do registro](docs/bosphorus_registration_ablation.md).
 
 Primeiro valide a configuração e os caminhos, sem criar arquivos:
 

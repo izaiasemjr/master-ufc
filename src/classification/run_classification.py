@@ -68,27 +68,33 @@ def category_for(row: dict[str, str], categories: dict[str, Any]) -> str:
 
 
 def read_predictions(scores: Path, settings: dict[str, Any], variant: str) -> list[dict[str, Any]]:
+    axis = "dp_threshold" if settings.get("selection") == "auto_k_increment" else ("dp" if settings.get("selection") == "auto_k" else "k")
+    cast = float if axis != "k" else int
+    aggregation = settings.get("aggregation", "mean")
+    if aggregation not in {"mean", "median"}:
+        raise ValueError("matching.aggregation must be mean or median")
+    score_column = f"distance_{aggregation}_l1"
     with scores.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     required = {
-        "k", "probe_subject", "probe_type", "probe_expression", "probe_sample",
+        axis, "probe_subject", "probe_type", "probe_expression", "probe_sample",
         "gallery_subject", "gallery_type", "gallery_expression", "gallery_sample",
-        "distance_mean_l1", "correspondence_count", "selected_count", "time_match_ms",
+        score_column, "correspondence_count", "selected_count", "time_match_ms",
     }
     if not rows or not required.issubset(rows[0]):
         raise ValueError(f"Matching score file has an invalid header: {scores}")
     groups: dict[tuple[str, int], list[dict[str, str]]] = {}
     for row in rows:
         try:
-            k_value = int(row["k"])
-            score = float(row["distance_mean_l1"])
+            k_value = cast(row[axis])
+            score = float(row[score_column])
         except ValueError as error:
             raise ValueError(f"Invalid numeric score in {scores}: {error}") from error
-        if k_value < 1 or not math.isfinite(score):
+        if (not math.isfinite(k_value) or k_value <= 0) or not math.isfinite(score):
             raise ValueError(f"Invalid k or non-finite score in {scores}")
         groups.setdefault((identity(row, "probe"), k_value), []).append(row)
 
-    k_values = {int(value) for value in settings["k_values"]}
+    k_values = {cast(value) for value in settings[f"{axis}_values"]}
     category_rules = settings["probes"]["categories"]
     predictions: list[dict[str, Any]] = []
     canonical_gallery: set[str] | None = None
@@ -96,38 +102,38 @@ def read_predictions(scores: Path, settings: dict[str, Any], variant: str) -> li
     expected_gallery_count = optional_count(settings["gallery"], "matching.gallery")
     for (probe_id, k_value), candidates in sorted(groups.items()):
         if k_value not in k_values:
-            raise ValueError(f"Unexpected k={k_value} in {scores}")
+            raise ValueError(f"Unexpected {axis}={k_value} in {scores}")
         gallery_ids = [identity(row, "gallery") for row in candidates]
         gallery_set = set(gallery_ids)
         if len(candidates) != len(gallery_set):
-            raise ValueError(f"{variant}: incomplete or duplicate gallery for probe={probe_id}, k={k_value}")
+            raise ValueError(f"{variant}: incomplete or duplicate gallery for probe={probe_id}, {axis}={k_value}")
         if expected_gallery_count is not None and len(gallery_set) != expected_gallery_count:
             raise ValueError(f"{variant}: gallery has {len(gallery_set)} entries; expected {expected_gallery_count}")
         if canonical_gallery is None:
             canonical_gallery = gallery_set
         elif gallery_set != canonical_gallery:
-            raise ValueError(f"{variant}: gallery differs between probe/k groups")
+            raise ValueError(f"{variant}: gallery differs between probe/parameter groups")
         probe_k_values.setdefault(probe_id, set()).add(k_value)
-        ordered = sorted(candidates, key=lambda row: (float(row["distance_mean_l1"]), identity(row, "gallery")))
+        ordered = sorted(candidates, key=lambda row: (float(row[score_column]), identity(row, "gallery")))
         probe_subject = ordered[0]["probe_subject"]
         true_rows = [index for index, row in enumerate(ordered, 1) if row["gallery_subject"] == probe_subject]
         if len(true_rows) != 1:
             raise ValueError(f"{variant}: probe {probe_id} has {len(true_rows)} gallery entries for its true subject")
-        best_score = float(ordered[0]["distance_mean_l1"])
+        best_score = float(ordered[0][score_column])
         category = category_for(ordered[0], category_rules)
         predictions.append({
-            "variant": variant, "k": k_value, "category": category,
+            "variant": variant, axis: k_value, "category": category,
             "probe_subject": ordered[0]["probe_subject"], "probe_type": ordered[0]["probe_type"],
             "probe_expression": ordered[0]["probe_expression"], "probe_sample": ordered[0]["probe_sample"],
-            "predicted_subject": ordered[0]["gallery_subject"], "predicted_distance_mean_l1": f"{best_score:.9f}",
+            "predicted_subject": ordered[0]["gallery_subject"], f"predicted_{score_column}": f"{best_score:.9f}",
             "true_rank": true_rows[0], "correct_rank_1": int(ordered[0]["gallery_subject"] == probe_subject),
-            "tie_count_at_best": sum(float(row["distance_mean_l1"]) == best_score for row in ordered),
+            "tie_count_at_best": sum(float(row[score_column]) == best_score for row in ordered),
         })
     if not canonical_gallery:
         raise ValueError(f"{variant}: no gallery results were found")
     for probe_id, values in probe_k_values.items():
         if values != k_values:
-            raise ValueError(f"{variant}: probe {probe_id} is missing one or more configured k values")
+            raise ValueError(f"{variant}: probe {probe_id} is missing one or more configured parameter values")
     expected_probes = optional_count(settings["probes"], "matching.probes")
     if expected_probes is not None and len(probe_k_values) != expected_probes:
         raise ValueError(f"{variant}: produced {len(probe_k_values)} probes; expected {expected_probes}")
@@ -135,9 +141,9 @@ def read_predictions(scores: Path, settings: dict[str, Any], variant: str) -> li
         expected = optional_count(rule, f"matching.probes.categories.{category}")
         if expected is not None:
             for k_value in k_values:
-                found = sum(prediction["category"] == category and prediction["k"] == k_value for prediction in predictions)
+                found = sum(prediction["category"] == category and prediction[axis] == k_value for prediction in predictions)
                 if found != expected:
-                    raise ValueError(f"{variant}: category {category}, k={k_value}, has {found} probes; expected {expected}")
+                    raise ValueError(f"{variant}: category {category}, {axis}={k_value}, has {found} probes; expected {expected}")
     return predictions
 
 
@@ -164,6 +170,7 @@ def main() -> int:
     try:
         config, root = load_config(args.config), args.project_root.resolve()
         settings = config["matching"]
+        axis = "dp_threshold" if settings.get("selection") == "auto_k_increment" else ("dp" if settings.get("selection") == "auto_k" else "k")
         if settings.get("mode") != "paper":
             raise ValueError("Classification currently requires matching.mode: paper")
         matching_root = project_path(config["input"]["matching_root"], root)
@@ -178,7 +185,7 @@ def main() -> int:
             print("Dry run completed; score tables were validated, no files were written.")
             return 0
         manifest: list[dict[str, str]] = []
-        fields = ["variant", "k", "category", "probe_subject", "probe_type", "probe_expression", "probe_sample", "predicted_subject", "predicted_distance_mean_l1", "true_rank", "correct_rank_1", "tie_count_at_best"]
+        fields = ["variant", axis, "category", "probe_subject", "probe_type", "probe_expression", "probe_sample", "predicted_subject", f"predicted_distance_{settings.get('aggregation', 'mean')}_l1", "true_rank", "correct_rank_1", "tie_count_at_best"]
         for variant, rows in prepared.items():
             path = output_root / variant / "predictions.csv"
             atomic_csv(path, fields, rows)

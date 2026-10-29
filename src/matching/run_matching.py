@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import re
 import subprocess
 import sys
@@ -122,7 +123,7 @@ def validate_protocol(records: list[dict[str, str]], settings: dict[str, Any]) -
     return sorted(gallery, key=label), sorted(probes, key=label)
 
 
-def collect_variant(variant: str, descriptor_root: Path, settings: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def collect_variant(variant: str, descriptor_root: Path, settings: dict[str, Any], gallery_descriptor_root: Path | None = None) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     root = descriptor_root / variant / "descriptors"
     if not root.is_dir():
         raise ValueError(f"Missing descriptor directory for {variant}: {root}")
@@ -133,7 +134,17 @@ def collect_variant(variant: str, descriptor_root: Path, settings: dict[str, Any
     duplicates = sorted({identity for identity in identities if identities.count(identity) > 1})
     if duplicates:
         raise ValueError(f"Duplicate descriptor identity in {variant}: {', '.join(duplicates)}")
-    return validate_protocol(records, settings)
+    gallery, probes = validate_protocol(records, settings)
+    if gallery_descriptor_root is not None:
+        frozen_root = gallery_descriptor_root / variant / "descriptors"
+        frozen_gallery = []
+        for record in gallery:
+            source = frozen_root / record["source"]
+            if not source.is_file():
+                raise ValueError(f"Frozen gallery descriptor is missing: {source}. Run the baseline experiment first.")
+            frozen_gallery.append(descriptor_record(source, frozen_root))
+        gallery = frozen_gallery
+    return gallery, probes
 
 
 def write_input_manifest(path: Path, gallery: list[dict[str, str]], probes: list[dict[str, str]]) -> None:
@@ -144,7 +155,7 @@ def write_input_manifest(path: Path, gallery: list[dict[str, str]], probes: list
                 handle.write("\t".join([role, record["subject"], record["type"], record["expression"], record["sample"], record["path"]]) + "\n")
 
 
-def validate_scores(path: Path, probes: list[dict[str, str]], gallery: list[dict[str, str]], k_values: list[int]) -> None:
+def validate_scores(path: Path, probes: list[dict[str, str]], gallery: list[dict[str, str]], k_values: list[int] | list[float], axis: str = "k", corr_min: int = 1) -> None:
     with path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     expected_rows = len(probes) * len(gallery) * len(k_values)
@@ -153,18 +164,37 @@ def validate_scores(path: Path, probes: list[dict[str, str]], gallery: list[dict
     expected_gallery = {label(record) for record in gallery}
     groups: dict[tuple[str, int], set[str]] = {}
     for row in rows:
-        key = ("_".join(row[f"probe_{field}"] for field in ("subject", "type", "expression", "sample")), int(row["k"]))
+        key = ("_".join(row[f"probe_{field}"] for field in ("subject", "type", "expression", "sample")), float(row[axis]))
         gallery_id = "_".join(row[f"gallery_{field}"] for field in ("subject", "type", "expression", "sample"))
         groups.setdefault(key, set()).add(gallery_id)
-        if int(row["correspondence_count"]) < 1 or int(row["selected_count"]) < 1:
+        if not 1 <= int(row["selected_count"]) <= int(row["correspondence_count"]):
             raise ValueError(f"Matching returned an empty correspondence result for {key[0]}")
+        if axis == "dp":
+            deviation = float(row["selected_stddev"])
+            selected = int(row["selected_count"])
+            recorded_min = int(row.get("corr_min", "1"))
+            if recorded_min != corr_min or selected < corr_min:
+                raise ValueError(f"Matching output does not use corr_min={corr_min} for {key[0]}; rerun with --overwrite")
+            if not math.isfinite(deviation) or deviation < 0 or (selected > corr_min and deviation >= float(row[axis])):
+                raise ValueError(f"Selected distances violate DP above corr_min for {key[0]}")
+        if axis == "dp_threshold":
+            selected, total = int(row["selected_count"]), int(row["correspondence_count"])
+            deviation = float(row["selected_stddev"])
+            if selected < min(2, total) or not math.isfinite(deviation) or deviation < 0:
+                raise ValueError(f"Invalid incremental prefix for {key[0]}")
+            if selected < total:
+                next_deviation, ratio = float(row["next_stddev"]), float(row["next_stddev_ratio"])
+                if not math.isfinite(next_deviation) or next_deviation < 0 or not ratio > float(row[axis]):
+                    raise ValueError(f"Incremental stop does not exceed threshold for {key[0]}")
+            elif row["next_stddev"] or row["next_stddev_ratio"]:
+                raise ValueError(f"Unexpected next prefix after selecting all pairs for {key[0]}")
     expected_probe = {label(record) for record in probes}
     if set(probe for probe, _ in groups) != expected_probe:
         raise ValueError("Matching output has missing or unexpected probes")
     for probe in expected_probe:
         for k_value in k_values:
             if groups.get((probe, k_value)) != expected_gallery:
-                raise ValueError(f"Matching output has an incomplete gallery for probe={probe}, k={k_value}")
+                raise ValueError(f"Matching output has an incomplete gallery for probe={probe}, {axis}={k_value}")
 
 
 def write_error(path: Path, command: list[str], completed: subprocess.CompletedProcess[str] | None, diagnostic: str) -> None:
@@ -201,22 +231,35 @@ def main() -> int:
         settings = config["matching"]
         if settings.get("mode") != "paper":
             raise ValueError("Only matching.mode: paper is supported; it uses documented L1 matching and scoring")
+        aggregation = settings.get("aggregation", "mean")
+        if aggregation not in {"mean", "median"}:
+            raise ValueError("matching.aggregation must be mean or median")
         descriptor_root = project_path(config["input"]["descriptor_root"], root)
+        gallery_descriptor_root = project_path(config["input"]["gallery_descriptor_root"], root) if config["input"].get("gallery_descriptor_root") else None
         output_root = project_path(config["output"]["root"], root)
         executable = project_path(config["commands"]["matching_batch"], root)
-        k_values = sorted({int(value) for value in settings["k_values"]})
-        if not k_values or any(value < 1 for value in k_values):
-            raise ValueError("matching.k_values must contain positive integers")
+        axis = "dp_threshold" if settings.get("selection") == "auto_k_increment" else ("dp" if settings.get("selection") == "auto_k" else "k")
+        if settings.get("selection", "fixed_k") not in {"fixed_k", "auto_k", "auto_k_increment"}:
+            raise ValueError("matching.selection must be fixed_k, auto_k or auto_k_increment")
+        corr_min = settings.get("corr_min", 1)
+        if isinstance(corr_min, bool) or not isinstance(corr_min, int) or corr_min < 1:
+            raise ValueError("matching.corr_min must be a positive integer")
+        if axis != "dp" and "corr_min" in settings:
+            raise ValueError("matching.corr_min requires selection: auto_k")
+        cast = float if axis != "k" else int
+        k_values = sorted({cast(value) for value in settings[f"{axis}_values"]})
+        if not k_values or any(not math.isfinite(value) or value <= 0 for value in k_values):
+            raise ValueError(f"matching.{axis}_values must contain finite positive values")
         variants = settings["variants"]
         if not isinstance(variants, dict) or not variants:
             raise ValueError("matching.variants must be a non-empty mapping")
-        print(f"Experiment: {config['name']}\nMode: paper (L1)\nVariants: {len(variants)}\nK: {', '.join(map(str, k_values))}")
+        print(f"Experiment: {config['name']}\nMode: paper (L1)\nVariants: {len(variants)}\n{axis.upper()}: {', '.join(map(str, k_values))}")
         prepared: dict[str, tuple[list[dict[str, str]], list[dict[str, str]]]] = {}
         for variant, variant_settings in variants.items():
             correspondence = variant_settings.get("correspondence")
             if correspondence not in {"fixed", "dynamic"}:
                 raise ValueError(f"matching variant {variant} must set correspondence: fixed or dynamic")
-            prepared[variant] = collect_variant(variant, descriptor_root, settings)
+            prepared[variant] = collect_variant(variant, descriptor_root, settings, gallery_descriptor_root)
             gallery, probes = prepared[variant]
             print(f"  {variant}: {len(probes)} probes x {len(gallery)} gallery ({correspondence})")
         if args.dry_run:
@@ -235,18 +278,20 @@ def main() -> int:
             pair_distances = variant_root / "pair_distances.csv"
             outputs_exist = scores.is_file() and timing.is_file() and (not export_distances or pair_distances.is_file())
             if outputs_exist and not args.overwrite:
-                validate_scores(scores, probes, gallery, k_values)
+                validate_scores(scores, probes, gallery, k_values, axis, corr_min)
                 records.append({"source": variant, "status": "skipped", "message": "validated existing score and timing files", "output": str(scores)})
                 print(f"[matching] [skipped] {variant}")
                 continue
             write_input_manifest(manifest, gallery, probes)
-            command = [str(executable), "--input", str(manifest), "--output", str(scores), "--timing-output", str(timing), "--correspondence", str(variant_settings["correspondence"]), "--ks", ",".join(map(str, k_values))]
+            command = [str(executable), "--input", str(manifest), "--output", str(scores), "--timing-output", str(timing), "--correspondence", str(variant_settings["correspondence"]), {"k": "--ks", "dp": "--dps", "dp_threshold": "--dp-thresholds"}[axis], ",".join(map(str, k_values)), "--aggregation", aggregation]
+            if axis == "dp":
+                command.extend(["--corr-min", str(corr_min)])
             if export_distances:
                 command.extend(["--pair-distances-output", str(pair_distances)])
             completed = subprocess.run(command, text=True, capture_output=True)
             if completed.returncode == 0:
                 try:
-                    validate_scores(scores, probes, gallery, k_values)
+                    validate_scores(scores, probes, gallery, k_values, axis, corr_min)
                     records.append({"source": variant, "status": "processed", "message": "", "output": str(scores)})
                     print(f"[matching] [processed] {variant}")
                     continue
@@ -262,7 +307,7 @@ def main() -> int:
             writer = csv.DictWriter(handle, fieldnames=["source", "status", "message", "output"])
             writer.writeheader(); writer.writerows(records)
         failures = [record for record in records if record["status"] == "failed"]
-        (output_root / "run.json").write_text(json.dumps({"experiment": config["name"], "mode": settings["mode"], "created_at_utc": datetime.now(timezone.utc).isoformat(), "k_values": k_values, "variants": settings["variants"], "failed": len(failures)}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (output_root / "run.json").write_text(json.dumps({"experiment": config["name"], "mode": settings["mode"], "aggregation": aggregation, "gallery_descriptor_root": str(gallery_descriptor_root) if gallery_descriptor_root else None, "created_at_utc": datetime.now(timezone.utc).isoformat(), "selection": settings.get("selection", "fixed_k"), "corr_min": corr_min if axis == "dp" else None, f"{axis}_values": k_values, "variants": settings["variants"], "failed": len(failures)}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return 1 if failures else 0
     except (KeyError, OSError, ValueError, json.JSONDecodeError, re.error, csv.Error) as error:
         diagnostic = str(error)

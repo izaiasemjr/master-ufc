@@ -32,10 +32,16 @@ subject. The complete protocol can produce tens of thousands of images.
 ## Radial-grid distribution for every gallery of one probe
 
 `plot_radial_probe_distributions.py` creates one combined image per probe. It
-shows the percentile bands of sorted local L1 distances across all its gallery
-comparisons, a histogram split between the gallery of the same subject and
-other subjects, and the final gallery ranking obtained from the mean of the
-`k` smallest local distances. The final panel is the one that directly tests
+uses a 2×2 layout: sorted local L1 distances (upper left), the cumulative mean
+of the `k` smallest distances for every `k=1,…,N` (upper right), a histogram
+split between the gallery of the same subject and other subjects (lower left),
+and the final gallery ranking for the chosen `k` (lower right). Both upper
+panels show percentile bands across galleries and the genuine gallery curve.
+The new curve is computed separately for each gallery as
+`mean_k = sum(sorted_distances[:k]) / k`, before calculating the bands.
+The maximum `N` comes from the input data; `sparse_15_11_11_6` has 106 positions
+(`1 + 6 + 9 + 18 + 24 + 24 + 24`), so its curves end at `k=106`.
+The final panel is the one that directly tests
 identification: the genuine gallery should rank near 1.
 
 ```bash
@@ -50,7 +56,7 @@ the experiment configuration.
 
 ## Radial-grid distributions for misclassified probes
 
-`plot_radial_misclassified_probe_distributions.py` reuses the same three panels
+`plot_radial_misclassified_probe_distributions.py` reuses the same four panels
 but writes images only when the best gallery belongs to a different subject
 (incorrect rank-1 identification). Scores are recomputed from `pair_distances.csv`
 using the mean of the `min(k, number of local distances)` smallest L1 distances.

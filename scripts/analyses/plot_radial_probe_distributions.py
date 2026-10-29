@@ -65,26 +65,80 @@ def rank_galleries(galleries: dict[str, list[float]], k: int) -> list[tuple[floa
     )
 
 
-def plot_probe(probe: str, galleries: dict[str, list[float]], k: int, output: Path) -> None:
-    ranks = np.linspace(0.0, 1.0, 106)
+def cumulative_means(values: list[float]) -> np.ndarray:
+    """Mean of the k smallest local distances for every k from 1 to N."""
+    ordered = np.sort(np.asarray(values, dtype=float))
+    return np.cumsum(ordered) / np.arange(1, len(ordered) + 1)
+
+
+def plot_probe(probe: str, galleries: dict[str, list[float]], k: int, output: Path,
+               *, show_extreme_galleries: bool = False) -> None:
+    max_count = max(map(len, galleries.values()))
+    indices = np.arange(1, max_count + 1)
+    ranks = np.linspace(0.0, 1.0, max_count)
     q10, q25, q50, q75, q90 = local_quantiles(galleries, ranks)
     genuine = {gallery: values for gallery, values in galleries.items() if subject(gallery) == subject(probe)}
     impostor = {gallery: values for gallery, values in galleries.items() if gallery not in genuine}
     final_scores = rank_galleries(galleries, k)
 
-    fig, (ax_local, ax_hist, ax_final) = plt.subplots(1, 3, figsize=(16, 4.8), constrained_layout=True)
-    ax_local.fill_between(ranks * 100, q10, q90, color="#5b9bd5", alpha=0.18, label="10–90% das galleries")
-    ax_local.fill_between(ranks * 100, q25, q75, color="#5b9bd5", alpha=0.34, label="25–75% das galleries")
-    ax_local.plot(ranks * 100, q50, color="#1f4e79", linewidth=1.8, label="mediana entre galleries")
+    fig, ((ax_local, ax_mean), (ax_hist, ax_final)) = plt.subplots(
+        2, 2, figsize=(14, 10), constrained_layout=True)
+    ax_local.fill_between(indices, q10, q90, color="#5b9bd5", alpha=0.18, label="10–90% das galleries")
+    ax_local.fill_between(indices, q25, q75, color="#5b9bd5", alpha=0.34, label="25–75% das galleries")
+    ax_local.plot(indices, q50, color="#1f4e79", linewidth=1.8, label="mediana entre galleries")
+    if show_extreme_galleries:
+        for (score, gallery), color, label in (
+            (final_scores[0], "#228833", "menor score"),
+            (final_scores[-1], "#aa33aa", "maior score"),
+        ):
+            ordered = np.sort(galleries[gallery])
+            source_ranks = np.linspace(0.0, 1.0, len(ordered))
+            ax_local.plot(
+                indices, np.interp(ranks, source_ranks, ordered),
+                color=color, linestyle="--", linewidth=1.6,
+                label=f"{label}: {gallery} ({score:.4f}; k={k})",
+            )
     for values in genuine.values():
         source_ranks = np.linspace(0.0, 1.0, len(values))
-        ax_local.plot(ranks * 100, np.interp(ranks, source_ranks, np.sort(values)), color="#c00000", linewidth=1.5,
+        ax_local.plot(indices, np.interp(ranks, source_ranks, np.sort(values)), color="#c00000", linewidth=1.5,
                       label="gallery do mesmo sujeito")
-    ax_local.set(xlabel="Percentil da distância local ordenada", ylabel="Distância L1",
+    ax_local.set(xlabel="Índice da distância local ordenada (menor → maior)", ylabel="Distância L1",
                  title="Distribuição local por comparação")
     ax_local.grid(alpha=0.25)
     handles, labels = ax_local.get_legend_handles_labels()
     ax_local.legend(dict(zip(labels, handles)).values(), dict(zip(labels, handles)).keys(), fontsize=8)
+
+    means = {gallery: cumulative_means(values) for gallery, values in galleries.items()}
+    # Unequal comparisons contribute only for the k values they actually have.
+    mean_curves = np.full((len(means), max_count), np.nan)
+    for row, curve in enumerate(means.values()):
+        mean_curves[row, :len(curve)] = curve
+    m10, m25, m50, m75, m90 = np.nanpercentile(mean_curves, (10, 25, 50, 75, 90), axis=0)
+    ax_mean.fill_between(indices, m10, m90, color="#5b9bd5", alpha=0.18, label="10–90% das galleries")
+    ax_mean.fill_between(indices, m25, m75, color="#5b9bd5", alpha=0.34, label="25–75% das galleries")
+    ax_mean.plot(indices, m50, color="#1f4e79", linewidth=1.8, label="mediana entre galleries")
+    if show_extreme_galleries:
+        # Keep the same galleries highlighted in both upper panels, selected at
+        # the requested final-score k, even if their ordering changes for other k.
+        for (score, gallery), color, label in (
+            (final_scores[0], "#228833", "menor score"),
+            (final_scores[-1], "#aa33aa", "maior score"),
+        ):
+            curve = means[gallery]
+            ax_mean.plot(indices[:len(curve)], curve, color=color, linestyle="--", linewidth=1.6,
+                         label=f"{label}: {gallery} ({score:.4f}; k={k})")
+    for gallery in genuine:
+        curve = means[gallery]
+        ax_mean.plot(indices[:len(curve)], curve, color="#c00000", linewidth=1.5,
+                     label="gallery do mesmo sujeito")
+    for ax in (ax_local, ax_mean):
+        ax.set_xlim(1, max(2, max_count))
+        ax.set_xticks(sorted({1, *range(20, max_count, 20), max_count}))
+    ax_mean.set(xlabel="k (quantidade de menores distâncias incluídas)", ylabel="Média das k menores distâncias L1",
+                title="Distância média acumulada por k")
+    ax_mean.grid(alpha=0.25)
+    handles, labels = ax_mean.get_legend_handles_labels()
+    ax_mean.legend(dict(zip(labels, handles)).values(), dict(zip(labels, handles)).keys(), fontsize=8)
 
     impostor_values = [value for values in impostor.values() for value in values]
     genuine_values = [value for values in genuine.values() for value in values]

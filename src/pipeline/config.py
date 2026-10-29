@@ -196,8 +196,20 @@ def compile_experiment(experiment: dict[str, Any], dataset: dict[str, Any]) -> d
         "processing": preprocessing_settings, "execution": execution,
     }
     reference = dataset["reference"]
+    registration_mode = registration_settings.get("mode", "all")
+    if registration_mode not in {"all", "gallery_only", "none"}:
+        raise ConfigError("registration.mode must be all, gallery_only, or none.")
+    reuse_gallery = registration_settings.get("reuse_gallery_from")
+    if reuse_gallery is not None:
+        if registration_mode != "gallery_only" or not isinstance(reuse_gallery, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", reuse_gallery) or reuse_gallery == name:
+            raise ConfigError("registration.reuse_gallery_from must name another experiment id and requires mode gallery_only.")
+    needs_reference = registration_mode == "all" or (registration_mode == "gallery_only" and reuse_gallery is None)
+    if not needs_reference and "reference_mask" in stages:
+        raise ConfigError("Remove the unused reference_mask stage when registration is bypassed or the registered gallery is reused.")
     registration = {
         "name": name,
+        "mode": registration_mode,
+        "gallery_filename_regex": reference["gallery_filename_regex"],
         "dataset": {"input_root": paths["preprocessing"] + "/clouds", "landmarks_root": dataset_paths["landmarks"], "include_glob": glob, "include_filename_regex": pattern, "target_suffix": registration_settings["target_suffix"]},
         "reference": {
             "gallery_root": paths["preprocessing"] + "/clouds", "gallery_filename_regex": reference["gallery_filename_regex"],
@@ -207,6 +219,8 @@ def compile_experiment(experiment: dict[str, Any], dataset: dict[str, Any]) -> d
         "output": {"root": paths["registration"], "overwrite": False}, "commands": commands["registration"],
         "processing": registration_settings["processing"], "execution": {"fail_fast": execution.get("fail_fast", False)},
     }
+    if reuse_gallery is not None:
+        registration["reuse_gallery_root"] = f"data/results/{dataset_id}/experiments/{reuse_gallery}/registration"
     crop = {
         "name": name,
         "dataset": {"cloud_root": paths["registration"] + "/registrations", "landmarks_root": paths["registration"] + "/landmarks_transformed", "include_glob": glob, "include_filename_regex": pattern},
@@ -238,6 +252,17 @@ def compile_experiment(experiment: dict[str, Any], dataset: dict[str, Any]) -> d
             "commands": matching_commands,
             "matching": matching_settings,
         }
+        reuse_descriptors = matching_settings.get("reuse_descriptors_from")
+        if reuse_descriptors is not None:
+            if not isinstance(reuse_descriptors, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", reuse_descriptors) or reuse_descriptors == name:
+                raise ConfigError("matching.reuse_descriptors_from must name another experiment id.")
+            if set(stages) - recognition_stages:
+                raise ConfigError("Descriptor reuse requires recognition-only pipeline stages.")
+            matching["input"]["descriptor_root"] = f"data/results/{dataset_id}/experiments/{reuse_descriptors}/feature_extraction"
+        if reuse_gallery is not None:
+            # Freeze the descriptors actually used for classification too:
+            # recomputing ISS can change its keypoints even on fixed clouds.
+            matching["input"]["gallery_descriptor_root"] = f"data/results/{dataset_id}/experiments/{reuse_gallery}/feature_extraction"
         configs["matching"] = matching
         configs["classification"] = {
             "name": name,

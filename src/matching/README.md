@@ -30,3 +30,9 @@ Compile em Linux/WSL:
 cmake -S src/matching -B src/matching/build
 cmake --build src/matching/build -j
 ```
+
+`matching.aggregation` seleciona `mean` (padrão) ou `median` para agregar os
+mesmos `min(k, quantidade de correspondências)` menores valores L1. Para uma
+quantidade par, a mediana é a média dos dois valores centrais. A coluna de
+score será `distance_mean_l1` ou `distance_median_l1`, respectivamente; a
+classificação usa essa mesma opção. As etapas anteriores não são alteradas.

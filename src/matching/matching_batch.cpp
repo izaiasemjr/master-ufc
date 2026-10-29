@@ -23,6 +23,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -57,7 +58,11 @@ struct Arguments {
   std::string timing_output;
   std::string pair_distances_output;
   std::string correspondence;
+  std::string aggregation = "mean";
   std::vector<std::size_t> k_values;
+  std::vector<double> dp_values;
+  bool incremental = false;
+  std::size_t corr_min = 1;
 };
 
 double milliseconds_since(const std::chrono::steady_clock::time_point& start) {
@@ -87,7 +92,27 @@ Arguments parse_arguments(int argc, char** argv) {
     else if (option == "--timing-output") args.timing_output = require_value(index, argc, argv, "--timing-output");
     else if (option == "--pair-distances-output") args.pair_distances_output = require_value(index, argc, argv, "--pair-distances-output");
     else if (option == "--correspondence") args.correspondence = require_value(index, argc, argv, "--correspondence");
-    else if (option == "--ks") {
+    else if (option == "--aggregation") args.aggregation = require_value(index, argc, argv, "--aggregation");
+    else if (option == "--corr-min") {
+      const auto raw = require_value(index, argc, argv, "--corr-min");
+      if (raw.empty() || raw.find_first_not_of("0123456789") != std::string::npos)
+        throw std::runtime_error("--corr-min must be a positive integer");
+      const auto value = std::stoull(raw);
+      if (value == 0 || value > std::numeric_limits<std::size_t>::max())
+        throw std::runtime_error("--corr-min must be a positive integer");
+      args.corr_min = static_cast<std::size_t>(value);
+    }
+    else if (option == "--dps" || option == "--dp-thresholds") {
+      if (!args.dp_values.empty()) throw std::runtime_error("Choose only one adaptive selection option");
+      args.incremental = option == "--dp-thresholds";
+      for (const auto& raw : split(require_value(index, argc, argv, option.c_str()), ',')) {
+        std::size_t consumed = 0;
+        const double value = std::stod(raw, &consumed);
+        if (consumed != raw.size() || !std::isfinite(value) || value <= 0)
+          throw std::runtime_error("DP must be finite and positive: " + raw);
+        args.dp_values.push_back(value);
+      }
+    } else if (option == "--ks") {
       for (const auto& raw : split(require_value(index, argc, argv, "--ks"), ',')) {
         try {
           const auto parsed = std::stoull(raw);
@@ -100,21 +125,28 @@ Arguments parse_arguments(int argc, char** argv) {
     } else if (option == "--help") {
       std::cout << "Usage: matching_batch --input manifest.tsv --output scores.csv "
                 << "--timing-output timing.csv [--pair-distances-output distances.csv] "
-                << "--correspondence fixed|dynamic --ks 2,5,10\n";
+                << "--correspondence fixed|dynamic [--aggregation mean|median] [--corr-min 5 (with --dps)] (--ks 2,5,10 | --dps 1,2,5 | --dp-thresholds 1.1,1.5,2)\n";
       std::exit(0);
     } else {
       throw std::runtime_error("Unknown option: " + option);
     }
   }
   if (args.input.empty() || args.output.empty() || args.timing_output.empty() ||
-      args.correspondence.empty() || args.k_values.empty()) {
-    throw std::runtime_error("--input, --output, --timing-output, --correspondence and --ks are required");
+      args.correspondence.empty() || (args.k_values.empty() == args.dp_values.empty())) {
+    throw std::runtime_error("--input, --output, --timing-output, --correspondence and exactly one of --ks, --dps or --dp-thresholds are required");
   }
+  if (args.corr_min != 1 && (args.dp_values.empty() || args.incremental))
+    throw std::runtime_error("--corr-min is supported only with absolute-DP selection (--dps)");
   if (args.correspondence != "fixed" && args.correspondence != "dynamic") {
     throw std::runtime_error("--correspondence must be fixed or dynamic");
   }
+  if (args.aggregation != "mean" && args.aggregation != "median") {
+    throw std::runtime_error("--aggregation must be mean or median");
+  }
   std::sort(args.k_values.begin(), args.k_values.end());
   args.k_values.erase(std::unique(args.k_values.begin(), args.k_values.end()), args.k_values.end());
+  std::sort(args.dp_values.begin(), args.dp_values.end());
+  args.dp_values.erase(std::unique(args.dp_values.begin(), args.dp_values.end()), args.dp_values.end());
   return args;
 }
 
@@ -247,10 +279,12 @@ void match_all(const Arguments& args) {
   const std::string temporary = args.output + ".tmp";
   std::ofstream output(temporary);
   if (!output) throw std::runtime_error("Cannot write matching output: " + temporary);
-  output << "k,probe_subject,probe_type,probe_expression,probe_sample,"
+  output << (args.dp_values.empty() ? "k," : (args.incremental ? "dp_threshold," : "dp,")) << "probe_subject,probe_type,probe_expression,probe_sample,"
          << "gallery_subject,gallery_type,gallery_expression,gallery_sample,"
-         << "distance_mean_l1,correspondence_count,selected_count,time_match_ms\n";
-  output << std::fixed << std::setprecision(9);
+         << "distance_" << args.aggregation << "_l1,correspondence_count,selected_count,time_match_ms"
+         << (args.dp_values.empty() ? "\n" : (args.incremental ? ",selected_stddev,next_stddev,next_stddev_ratio\n" : ",selected_stddev,corr_min\n"));
+  if (args.dp_values.empty()) output << std::fixed << std::setprecision(9);
+  else output << std::setprecision(17);
 
   std::ofstream pair_distances;
   std::string distances_temporary;
@@ -273,6 +307,9 @@ void match_all(const Arguments& args) {
       const auto pair_start = std::chrono::steady_clock::now();
       auto scores = args.correspondence == "fixed" ? fixed_scores(*probe, *gallery)
                                                      : dynamic_scores(*probe, *gallery);
+      if (!args.dp_values.empty() && !args.incremental && scores.size() < args.corr_min)
+        throw std::runtime_error("Not enough correspondences for corr_min=" + std::to_string(args.corr_min) +
+                                 ": " + probe->id() + " x " + gallery->id());
       std::sort(scores.begin(), scores.end());
       if (pair_distances) {
         for (std::size_t index = 0; index < scores.size(); ++index) {
@@ -284,16 +321,66 @@ void match_all(const Arguments& args) {
       }
       std::vector<double> prefix(scores.size() + 1, 0.0);
       for (std::size_t index = 0; index < scores.size(); ++index) prefix[index + 1] = prefix[index] + scores[index];
+      // Welford population moments for each sorted prefix, shared by
+      // absolute-DP selection and incremental stddev-ratio selection.
+      std::vector<double> stddev(scores.size() + 1, 0.0);
+      if (!args.dp_values.empty()) {
+        double mean = 0.0, m2 = 0.0;
+        for (std::size_t n = 1; n <= scores.size(); ++n) {
+          const double delta = scores[n - 1] - mean;
+          mean += delta / n;
+          m2 += delta * (scores[n - 1] - mean);
+          stddev[n] = std::sqrt(std::max(0.0, m2 / n));
+        }
+      }
+      std::vector<std::size_t> selections;
+      for (const auto k : args.k_values) selections.push_back(std::min(k, scores.size()));
+      for (const auto dp : args.dp_values) {
+        std::size_t selected = 1;
+        if (args.incremental) {
+          selected = std::min<std::size_t>(2, scores.size());
+          while (selected < scores.size()) {
+            const double current = stddev[selected], next = stddev[selected + 1];
+            const double ratio = current > 0 ? next / current
+                : (next > 0 ? std::numeric_limits<double>::infinity() : 1.0);
+            if (ratio > dp) break;  // Reject next; keep the current prefix.
+            ++selected;
+          }
+        } else {
+          // Keep at least corr_min even if its stddev violates DP. Inspect
+          // all longer prefixes because sorted-prefix stddev is not monotonic.
+          selected = args.corr_min;
+          for (std::size_t n = args.corr_min + 1; n <= scores.size(); ++n)
+            if (stddev[n] < dp) selected = n;
+        }
+        selections.push_back(selected);
+      }
       const double pair_ms = milliseconds_since(pair_start);
       all_pairs_ms += pair_ms;
       ++pair_count;
-      for (const auto requested_k : args.k_values) {
-        const std::size_t selected = std::min(requested_k, scores.size());
-        const double mean = prefix[selected] / static_cast<double>(selected);
-        output << requested_k << ',' << probe->subject << ',' << probe->type << ','
+      for (std::size_t index = 0; index < selections.size(); ++index) {
+        const std::size_t selected = selections[index];
+        const double score = args.aggregation == "median"
+            ? (static_cast<double>(scores[(selected - 1) / 2]) + scores[selected / 2]) / 2.0
+            : prefix[selected] / static_cast<double>(selected);
+        if (args.dp_values.empty()) output << args.k_values[index];
+        else output << args.dp_values[index];
+        output << ',' << probe->subject << ',' << probe->type << ','
                << probe->expression << ',' << probe->sample << ',' << gallery->subject << ','
                << gallery->type << ',' << gallery->expression << ',' << gallery->sample << ','
-               << mean << ',' << scores.size() << ',' << selected << ',' << pair_ms << '\n';
+               << score << ',' << scores.size() << ',' << selected << ',' << pair_ms;
+        if (!args.dp_values.empty()) output << ',' << stddev[selected];
+        if (!args.dp_values.empty() && !args.incremental) output << ',' << args.corr_min;
+        if (args.incremental) {
+          output << ',';
+          if (selected < scores.size()) {
+            const double current = stddev[selected], next = stddev[selected + 1];
+            const double ratio = current > 0 ? next / current
+                : (next > 0 ? std::numeric_limits<double>::infinity() : 1.0);
+            output << next << ',' << ratio;
+          } else output << ',';  // No next prefix when all pairs were selected.
+        }
+        output << '\n';
       }
     }
   }

@@ -1,0 +1,136 @@
+# Incremental auto-k: stop before the first excessive stddev ratio.
+id: bosphorus-neutrals-occlusions-auto-k-increment
+dataset: bosphorus
+
+samples:
+  groups: [neutral, occlusion]
+
+pipeline:
+  stages: [matching, classification, evaluation, visualization]
+
+execution:
+  workers: 1
+  fail_fast: false
+
+preprocessing:
+  outlier_removal:
+    radius: 5.0
+    min_points: 10
+  voxel_grid:
+    leaf_size: [2.0, 2.0, 2.0]
+
+registration:
+  target_suffix: N_N_0
+  processing:
+    fields: [x, y, z]
+    partitions: 2
+    icp:
+      transformation_epsilon: 0.001
+      max_iterations: 100
+    occlusion:
+      enabled: false
+      threshold: 8.0
+      penalty: 1
+      restoration_threshold: 1.0
+    debug: false
+
+crop:
+  landmark_index: 13
+  crop_radius: 80.0
+  offset: [0.0, 0.0, 0.0]
+
+keypoints:
+  radial_grids:
+    - [normal, 15, 11, 11, 6]
+    - [normal, 30, 11, 11, 6]
+    - [normal, 60, 11, 11, 6]
+    - [sparse, 15, 11, 11, 6]
+    - [sparse, 30, 11, 11, 6]
+    - [sparse, 10, 16, 11, 6]
+  detectors:
+    - [sift_normal, 10, 4, 7, 8, 0.0001]
+    - [iss, 10, 5, 0.975, 0.0975, 5, 5]
+
+feature_extraction:
+  variants:
+    sparse_15:
+      keypoint_family: grids
+      keypoint_method: sparse_15_11_11_6
+      normal_radius: 10.0
+      feature_radius: 25.0
+    sift:
+      keypoint_family: detectors
+      keypoint_method: sift_normal_10_4_7_8_0.0001
+      normal_radius: 10.0
+      feature_radius: 25.0
+    iss:
+      keypoint_family: detectors
+      keypoint_method: iss_10_5_0.975_0.0975_5_5
+      normal_radius: 10.0
+      feature_radius: 25.0
+
+# This local Bosphorus subset defines its gallery and probe population from the
+# descriptors found. Add expected_count only when a fixed protocol is intended;
+# selectors can also use subject_regex, type_regex, expression_regex, and
+# sample_regex.
+# L1 is used consistently in correspondence search and score aggregation.
+matching:
+  mode: paper
+  selection: auto_k_increment
+  reuse_descriptors_from: bosphorus-neutrals-occlusions
+  # Start at k=2. Stop before adding k+1 if stddev(k+1)/stddev(k) > threshold.
+  # Ratios: 0/0 = 1; positive/0 = infinity. No stop means use all pairs.
+  dp_threshold_values: [1.01, 1.025, 1.05, 1.1, 1.15, 1.2, 1.3, 1.4, 1.5, 1.75, 2, 3]
+  rank_max: 20
+  gallery:
+    type: N
+    expression: N
+    sample: 0
+  probes:
+    categories:
+      N:
+        type: N
+        expression: N
+        sample_regex: "[1-9][0-9]*"
+      O_EYE:
+        type: O
+        expression: EYE
+      O_GLASSES:
+        type: O
+        expression: GLASSES
+      O_MOUTH:
+        type: O
+        expression: MOUTH
+      O_HAIR:
+        type: O
+        expression: HAIR
+  variants:
+    sparse_15:
+      correspondence: fixed
+      # Optional audit of every sorted correspondence distance.
+      export_pair_distances: false
+    sift:
+      correspondence: dynamic
+    iss:
+      correspondence: dynamic
+
+# CMC at the example threshold 1.5; recognition curves include every threshold.
+visualization:
+  formats: [png]
+  dpi: 300
+  cmc_dp_threshold:
+    sparse_15: 1.5
+    sift: 1.5
+    iss: 1.5
+  variant_labels:
+    sparse_15: Radial Grid
+    sift: SIFT
+    iss: ISS
+  category_labels:
+    N: Neutral
+    O_EYE: Eye
+    O_GLASSES: Glasses
+    O_MOUTH: Mouth
+    O_HAIR: Hair
+    O_ALL: O All
+    ALL: All
